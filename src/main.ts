@@ -1,8 +1,18 @@
 import './style.css';
 import { FluidModel } from './fluid/FluidModel';
 import { Renderer } from './rendering/Renderer';
-import { CrowdModel } from './crowd/CrowdModel';
-import { loadLargeViewZoomA } from './data/largeviewzoomA';
+import {
+  CrowdModel,
+  type CrowdCondition,
+} from './crowd/CrowdModel';
+import {
+  loadLargeViewZoomA,
+  type LargeViewTrajectory,
+} from './data/largeviewzoomA';
+
+/* =========================
+   기본 조건
+========================= */
 
 const canvas = document.createElement('canvas');
 document.body.appendChild(canvas);
@@ -16,29 +26,52 @@ let viscosity = 0.000001;
 
 let running = false;
 
+/*
+ * escape
+ * = 공간 안에 사람이 이미 존재 → 오른쪽 출구로 탈출
+ *
+ * open
+ * = 왼쪽에서 사람이 계속 유입 → 오른쪽으로 유출
+ */
+let experimentMode: 'escape' | 'open' = 'escape';
+
+let currentModel: 'fluid' | 'crowd' = 'crowd';
+
 const renderer = new Renderer(canvas);
 renderer.setupCamera(roomWidth, roomHeight);
 
 let fluid: FluidModel;
-let currentModel: 'fluid' | 'crowd' = 'fluid';
-
-let largeViewDataLoaded = false;
-let largeViewLoading = false;
 
 const crowd = new CrowdModel();
 
-const crowdCondition = {
+/* =========================
+   LargeView 실제 데이터
+========================= */
+
+let largeViewData: LargeViewTrajectory[] = [];
+let largeViewDataLoaded = false;
+let largeViewLoading = false;
+
+/* =========================
+   군중 기본 초기조건
+========================= */
+
+const crowdCondition: CrowdCondition = {
   width: roomWidth,
   height: roomHeight,
+
   density: 1,
+
   initialSpeed: 80,
 
   positions: Array.from({ length: 40 }, (_, index) => ({
     x: 100 + (index % 8) * 35,
     y: 130 + Math.floor(index / 8) * 45,
   })),
-  mode: 'closed' as const,
-  shape: 'corridor' as const,
+
+  mode: 'closed',
+
+  shape: 'corridor',
 
   exit: {
     x: roomWidth,
@@ -57,6 +90,10 @@ const crowdCondition = {
 
 crowd.initialize(crowdCondition);
 
+/* =========================
+   유체 모델
+========================= */
+
 function createFluid() {
   return new FluidModel({
     width: roomWidth,
@@ -66,9 +103,9 @@ function createFluid() {
     gridY: 50,
 
     density: fluidDensity,
-    viscosity: viscosity,
+    viscosity,
 
-    initialSpeed: initialSpeed,
+    initialSpeed,
 
     inlet: {
       y: roomHeight / 2,
@@ -81,9 +118,12 @@ function createFluid() {
     },
 
     mode: experimentMode,
+
     obstacles: [],
   });
 }
+
+fluid = createFluid();
 
 /* =========================
    UI
@@ -93,50 +133,81 @@ const panel = document.createElement('div');
 panel.className = 'fluid-panel';
 
 panel.innerHTML = `
-  <h1>유체 흐름 실험</h1>
+  <h1>군중 흐름 물리 시뮬레이션</h1>
 
   <p class="description">
-    서로 다른 접근법으로 흐름을 비교합니다.
+    실제 군중 데이터를 초기조건으로 사용하여
+    군중의 물리적 거동을 시뮬레이션합니다.
   </p>
+
+  <div class="status">
+    <div>
+      연구 흐름:
+      <strong>
+        실제 데이터 → 초기조건 → 물리 모델 → 군중 움직임
+      </strong>
+    </div>
+  </div>
+
+  <h3>모델 선택</h3>
+
+  <div class="model-buttons">
+    <button
+      id="crowdModelButton"
+      class="model-button selected"
+    >
+      <strong>① 군중 물리 모델</strong>
+      <small>실제 데이터에서 초기조건 추출</small>
+    </button>
+
+    <button
+      id="fluidModelButton"
+      class="model-button"
+    >
+      <strong>② 유체역학 모델</strong>
+      <small>Navier–Stokes 기반 비교 모델</small>
+    </button>
+  </div>
+
+  <h3>실제 데이터</h3>
+
+  <button
+    id="loadDataButton"
+    class="model-button"
+  >
+    <strong>LargeView_zoom_A 불러오기</strong>
+    <small>
+      실제 군중 궤적 → 초기 위치·초기 속도
+    </small>
+  </button>
+
+  <h3>실험 조건</h3>
 
   <div class="model-buttons">
 
     <button
-      id="fluidModelButton"
+      id="escapeModeButton"
       class="model-button selected"
     >
-      <strong>① 근본 유체역학</strong>
-      <small>Navier–Stokes 기반</small>
+      <strong>① 탈출형</strong>
+      <small>고립된 공간 → 외부</small>
     </button>
 
     <button
-      id="largezoomModelButton"
+      id="openModeButton"
       class="model-button"
     >
-      <strong>② largezoomA 데이터</strong>
-      <small>실제 데이터 기반</small>
+      <strong>② 유입·유출형</strong>
+      <small>외부 → 공간 → 외부</small>
     </button>
 
   </div>
 
-  <h3>실험 조건</h3>
-
-<div class="model-buttons">
-  <button id="escapeModeButton" class="model-button selected">
-    <strong>① 탈출형</strong>
-    <small>고립된 공간 → 외부</small>
-  </button>
-
-  <button id="openModeButton" class="model-button">
-    <strong>② 유입·유출형</strong>
-    <small>외부 → 공간 → 외부</small>
-  </button>
-</div>
-
-  <h4>유체 조건</h4>
+  <h4>초기조건</h4>
 
   <label class="fluid-panellabel">
     초기 속도
+
     <input
       id="speed"
       type="range"
@@ -144,11 +215,15 @@ panel.innerHTML = `
       max="100"
       value="${initialSpeed}"
     />
-    <span id="speedValue">${initialSpeed}</span>
+
+    <span id="speedValue">
+      ${initialSpeed}
+    </span>
   </label>
 
   <label class="fluid-panellabel">
-    밀도
+    유체 밀도
+
     <input
       id="density"
       type="range"
@@ -156,11 +231,15 @@ panel.innerHTML = `
       max="2000"
       value="${fluidDensity}"
     />
-    <span id="densityValue">${fluidDensity}</span>
+
+    <span id="densityValue">
+      ${fluidDensity}
+    </span>
   </label>
 
   <label class="fluid-panellabel">
     동점성계수
+
     <input
       id="viscosity"
       type="range"
@@ -169,10 +248,38 @@ panel.innerHTML = `
       step="0.000001"
       value="${viscosity}"
     />
+
     <span id="viscosityValue">
       ${viscosity.toFixed(6)}
     </span>
   </label>
+
+  <h4>현재 상태</h4>
+
+  <div class="status">
+
+    <div>
+      모델:
+      <strong id="modelStatus">
+        군중 물리 모델
+      </strong>
+    </div>
+
+    <div>
+      초기조건:
+      <strong id="conditionStatus">
+        기본 군중 배치
+      </strong>
+    </div>
+
+    <div>
+      계산:
+      <strong id="calculationStatus">
+        사람 간 상호작용 기반
+      </strong>
+    </div>
+
+  </div>
 
   <div class="experiment-buttons">
 
@@ -190,24 +297,6 @@ panel.innerHTML = `
     </button>
 
   </div>
-
-  <div class="status">
-
-    <div>
-      모델:
-      <strong id="modelStatus">
-        근본 유체역학
-      </strong>
-    </div>
-
-    <div>
-      계산 방식:
-      <strong id="calculationStatus">
-  Navier–Stokes
-</strong>
-    </div>
-
-  </div>
 `;
 
 document.body.appendChild(panel);
@@ -216,241 +305,690 @@ document.body.appendChild(panel);
    DOM
 ========================= */
 
-const speedInput = document.getElementById('speed') as HTMLInputElement;
+const speedInput =
+  document.getElementById('speed') as HTMLInputElement;
 
-const densityInput = document.getElementById('density') as HTMLInputElement;
+const densityInput =
+  document.getElementById('density') as HTMLInputElement;
 
-const viscosityInput = document.getElementById('viscosity') as HTMLInputElement;
+const viscosityInput =
+  document.getElementById('viscosity') as HTMLInputElement;
 
-const speedValue = document.getElementById('speedValue')!;
+const speedValue =
+  document.getElementById('speedValue')!;
 
-const densityValue = document.getElementById('densityValue')!;
+const densityValue =
+  document.getElementById('densityValue')!;
 
-const viscosityValue = document.getElementById('viscosityValue')!;
+const viscosityValue =
+  document.getElementById('viscosityValue')!;
 
-const fluidModelButton = document.getElementById(
-  'fluidModelButton'
-) as HTMLButtonElement;
+const crowdModelButton =
+  document.getElementById(
+    'crowdModelButton'
+  ) as HTMLButtonElement;
 
-const largezoomModelButton = document.getElementById(
-  'largezoomModelButton'
-) as HTMLButtonElement;
+const fluidModelButton =
+  document.getElementById(
+    'fluidModelButton'
+  ) as HTMLButtonElement;
 
-const modelStatus = document.getElementById('modelStatus')!;
+const loadDataButton =
+  document.getElementById(
+    'loadDataButton'
+  ) as HTMLButtonElement;
 
-const startButton = document.getElementById('startButton') as HTMLButtonElement;
+const modelStatus =
+  document.getElementById('modelStatus')!;
 
-const resetButton = document.getElementById('resetButton') as HTMLButtonElement;
+const conditionStatus =
+  document.getElementById('conditionStatus')!;
 
-const escapeModeButton = document.getElementById(
-  'escapeModeButton'
-) as HTMLButtonElement;
+const calculationStatus =
+  document.getElementById('calculationStatus')!;
 
-const openModeButton = document.getElementById(
-  'openModeButton'
-) as HTMLButtonElement;
+const startButton =
+  document.getElementById(
+    'startButton'
+  ) as HTMLButtonElement;
 
-let experimentMode: 'escape' | 'open' = 'escape';
+const resetButton =
+  document.getElementById(
+    'resetButton'
+  ) as HTMLButtonElement;
 
-fluid = createFluid();
+const escapeModeButton =
+  document.getElementById(
+    'escapeModeButton'
+  ) as HTMLButtonElement;
 
-/* =========================
-   입력값
-========================= */
-
-speedInput.addEventListener('input', () => {
-  initialSpeed = Number(speedInput.value);
-  speedValue.textContent = String(initialSpeed);
-});
-
-densityInput.addEventListener('input', () => {
-  fluidDensity = Number(densityInput.value);
-  densityValue.textContent = String(fluidDensity);
-});
-
-viscosityInput.addEventListener('input', () => {
-  viscosity = Number(viscosityInput.value);
-  viscosityValue.textContent = viscosity.toFixed(6);
-});
+const openModeButton =
+  document.getElementById(
+    'openModeButton'
+  ) as HTMLButtonElement;
 
 /* =========================
    모델 선택
 ========================= */
 
-fluidModelButton.addEventListener('click', () => {
-  currentModel = 'fluid';
+crowdModelButton.addEventListener(
+  'click',
+  () => {
 
-  fluidModelButton.classList.add('selected');
-  largezoomModelButton.classList.remove('selected');
+    currentModel = 'crowd';
 
-  modelStatus.textContent = '근본 유체역학';
-});
+    crowdModelButton.classList.add('selected');
+    fluidModelButton.classList.remove('selected');
 
-largezoomModelButton.addEventListener('click', async () => {
-  currentModel = 'crowd';
+    modelStatus.textContent =
+      '군중 물리 모델';
 
-  largezoomModelButton.classList.add('selected');
-  fluidModelButton.classList.remove('selected');
+    calculationStatus.textContent =
+      '사람 간 상호작용 기반';
 
-  modelStatus.textContent = 'LargeView_zoom_A 실제 데이터';
+    /*
+     * LargeView는
+     * 탈출형에서만 실제 초기조건으로 적용
+     */
+    if (
+      largeViewDataLoaded &&
+      experimentMode === 'escape'
+    ) {
 
-  if (!largeViewDataLoaded && !largeViewLoading) {
-    largeViewLoading = true;
+      crowd.seedFromTrajectoryData(
+        largeViewData
+      );
 
-    modelStatus.textContent = 'LargeView_zoom_A 불러오는 중...';
+      conditionStatus.textContent =
+        `탈출형 · 실제 군중 ${largeViewData.length}명`;
+    }
 
-    try {
-      const data = await loadLargeViewZoomA();
+    if (
+      !largeViewDataLoaded &&
+      experimentMode === 'escape'
+    ) {
 
-      crowd.setTrajectoryData(data);
+      crowd.initialize(
+        crowdCondition
+      );
 
-      largeViewDataLoaded = true;
-      modelStatus.textContent = `LargeView_zoom_A 실제 데이터 (${data.length}명)`;
-    } catch (error) {
-      console.error(error);
+      conditionStatus.textContent =
+        '탈출형 · 기본 군중 배치';
+    }
 
-      modelStatus.textContent = 'LargeView_zoom_A 불러오기 실패';
+    if (experimentMode === 'open') {
 
-      currentModel = 'fluid';
+      crowd.initialize({
+        ...crowdCondition,
+        positions: [],
+        mode: 'continuous',
+      });
 
-      largezoomModelButton.classList.remove('selected');
-      fluidModelButton.classList.add('selected');
-    } finally {
-      largeViewLoading = false;
+      conditionStatus.textContent =
+        '유입·유출형 · 입구에서 지속적으로 유입';
     }
   }
-});
+);
 
 /* =========================
-   실험 조건 선택
+   유체 모델 선택
 ========================= */
 
-escapeModeButton.addEventListener('click', () => {
-  experimentMode = 'escape';
+fluidModelButton.addEventListener(
+  'click',
+  () => {
 
-  escapeModeButton.classList.add('selected');
-  openModeButton.classList.remove('selected');
+    currentModel = 'fluid';
 
-  fluid = createFluid();
-  crowd.initialize(crowdCondition);
-});
+    fluidModelButton.classList.add('selected');
+    crowdModelButton.classList.remove('selected');
 
-openModeButton.addEventListener('click', () => {
-  experimentMode = 'open';
-  openModeButton.classList.add('selected');
-  escapeModeButton.classList.remove('selected');
+    modelStatus.textContent =
+      '유체역학 모델';
 
-  fluid = createFluid();
+    calculationStatus.textContent =
+      'Navier–Stokes';
 
-  const openCrowdCondition = {
-    ...crowdCondition,
-    positions: [],
-    mode: 'continuous' as const,
-  };
-
-  crowd.initialize(openCrowdCondition);
-});
-
-/* =========================
-   시작
-========================= */
-
-startButton.addEventListener('click', () => {
-  running = !running;
-  startButton.textContent = running ? '⏸ 정지' : '▶ 시작';
-
-  if (running) {
-    panel.classList.add('hidden');
-  } else {
-    panel.classList.remove('hidden');
+    conditionStatus.textContent =
+      '유체 초기조건';
   }
-});
+);
+
+/* =========================
+   LargeView 데이터 불러오기
+========================= */
+
+async function loadLargeViewData() {
+
+  if (largeViewLoading) {
+    return;
+  }
+
+  largeViewLoading = true;
+
+  loadDataButton.disabled = true;
+
+  loadDataButton.innerHTML = `
+    <strong>
+      LargeView 데이터 불러오는 중...
+    </strong>
+
+    <small>
+      실제 군중 궤적을 읽고 있습니다.
+    </small>
+  `;
+
+  try {
+
+    const data =
+      await loadLargeViewZoomA();
+
+    largeViewData =
+      data;
+
+    largeViewDataLoaded =
+      true;
+
+    /*
+     * 탈출형일 때만
+     * LargeView를 실제 초기조건으로 사용
+     */
+    if (
+      experimentMode === 'escape'
+    ) {
+
+      crowd.seedFromTrajectoryData(
+        largeViewData
+      );
+
+      conditionStatus.textContent =
+        `탈출형 · 실제 군중 ${data.length}명`;
+
+      calculationStatus.textContent =
+        '실제 초기 위치·속도 + 사람 간 상호작용';
+
+    } else {
+
+      /*
+       * 유입·유출형에서는
+       * 데이터를 저장만 하고
+       * 현재 군중 상태를 덮어쓰지 않음
+       */
+
+      conditionStatus.textContent =
+        '유입·유출형 · 현재 유입 조건 유지';
+
+      calculationStatus.textContent =
+        '입구 유입 + 군중 상호작용';
+    }
+
+    currentModel =
+      'crowd';
+
+    crowdModelButton.classList.add(
+      'selected'
+    );
+
+    fluidModelButton.classList.remove(
+      'selected'
+    );
+
+    modelStatus.textContent =
+      '군중 물리 모델';
+
+    loadDataButton.innerHTML = `
+      <strong>
+        ✓ LargeView 데이터 불러옴
+      </strong>
+
+      <small>
+        ${
+          experimentMode === 'escape'
+            ? '실제 군중을 탈출형 초기조건으로 적용'
+            : '실제 데이터 저장 완료 · 유입·유출 조건 유지'
+        }
+      </small>
+    `;
+
+  } catch (error) {
+
+    console.error(error);
+
+    conditionStatus.textContent =
+      '데이터 불러오기 실패';
+
+    loadDataButton.innerHTML = `
+      <strong>
+        LargeView 데이터 불러오기 실패
+      </strong>
+
+      <small>
+        다시 눌러주세요.
+      </small>
+    `;
+
+  } finally {
+
+    largeViewLoading =
+      false;
+
+    loadDataButton.disabled =
+      false;
+  }
+}
+
+loadDataButton.addEventListener(
+  'click',
+  loadLargeViewData
+);
+
+/* =========================
+   속도
+========================= */
+
+speedInput.addEventListener(
+  'input',
+  () => {
+
+    initialSpeed =
+      Number(speedInput.value);
+
+    speedValue.textContent =
+      String(initialSpeed);
+
+    crowd.setDesiredSpeed(
+      initialSpeed
+    );
+
+    if (
+      currentModel === 'fluid'
+    ) {
+
+      fluid =
+        createFluid();
+    }
+  }
+);
+
+/* =========================
+   유체 밀도
+========================= */
+
+densityInput.addEventListener(
+  'input',
+  () => {
+
+    fluidDensity =
+      Number(densityInput.value);
+
+    densityValue.textContent =
+      String(fluidDensity);
+
+    fluid =
+      createFluid();
+  }
+);
+
+/* =========================
+   점성
+========================= */
+
+viscosityInput.addEventListener(
+  'input',
+  () => {
+
+    viscosity =
+      Number(viscosityInput.value);
+
+    viscosityValue.textContent =
+      viscosity.toFixed(6);
+
+    fluid =
+      createFluid();
+  }
+);
+
+/* =========================
+   탈출형
+========================= */
+
+escapeModeButton.addEventListener(
+  'click',
+  () => {
+
+    experimentMode =
+      'escape';
+
+    escapeModeButton.classList.add(
+      'selected'
+    );
+
+    openModeButton.classList.remove(
+      'selected'
+    );
+
+    fluid =
+      createFluid();
+
+    /*
+     * 탈출형:
+     *
+     * 공간 내부에 사람이 존재
+     * ↓
+     * 사람 간 상호작용
+     * ↓
+     * 오른쪽 출구로 탈출
+     */
+
+    if (
+      largeViewDataLoaded
+    ) {
+
+      crowd.seedFromTrajectoryData(
+        largeViewData
+      );
+
+      conditionStatus.textContent =
+        `탈출형 · 실제 군중 ${largeViewData.length}명`;
+
+      calculationStatus.textContent =
+        '실제 초기 위치·속도 + 군중 상호작용';
+
+    } else {
+
+      crowd.initialize(
+        crowdCondition
+      );
+
+      conditionStatus.textContent =
+        '탈출형 · 공간 내부에 군중 존재';
+
+      calculationStatus.textContent =
+        '기본 초기조건 + 군중 상호작용';
+    }
+
+    currentModel =
+      'crowd';
+
+    crowdModelButton.classList.add(
+      'selected'
+    );
+
+    fluidModelButton.classList.remove(
+      'selected'
+    );
+
+    modelStatus.textContent =
+      '군중 물리 모델';
+  }
+);
+
+/* =========================
+   유입·유출형
+========================= */
+
+openModeButton.addEventListener(
+  'click',
+  () => {
+
+    experimentMode =
+      'open';
+
+    openModeButton.classList.add(
+      'selected'
+    );
+
+    escapeModeButton.classList.remove(
+      'selected'
+    );
+
+    fluid =
+      createFluid();
+
+    /*
+     * 유입·유출형:
+     *
+     * 처음에는 사람 0명
+     * ↓
+     * 왼쪽 입구에서 유입
+     * ↓
+     * 공간 내부 이동
+     * ↓
+     * 오른쪽 출구로 유출
+     */
+
+    crowd.initialize({
+      ...crowdCondition,
+      positions: [],
+      mode: 'continuous',
+    });
+
+    conditionStatus.textContent =
+      '유입·유출형 · 입구에서 지속적으로 유입';
+
+    calculationStatus.textContent =
+      '입구 유입 + 군중 상호작용';
+
+    currentModel =
+      'crowd';
+
+    crowdModelButton.classList.add(
+      'selected'
+    );
+
+    fluidModelButton.classList.remove(
+      'selected'
+    );
+
+    modelStatus.textContent =
+      '군중 물리 모델';
+  }
+);
+
+/* =========================
+   시작 / 정지
+========================= */
+
+startButton.addEventListener(
+  'click',
+  () => {
+
+    running =
+      !running;
+
+    startButton.textContent =
+      running
+        ? '⏸ 정지'
+        : '▶ 시작';
+
+    if (running) {
+
+      panel.classList.add(
+        'hidden'
+      );
+
+    } else {
+
+      panel.classList.remove(
+        'hidden'
+      );
+    }
+  }
+);
 
 /* =========================
    초기화
 ========================= */
 
-resetButton.addEventListener('click', () => {
-  running = false;
-  startButton.textContent = '▶ 시작';
-  panel.classList.remove('hidden');
+resetButton.addEventListener(
+  'click',
+  () => {
 
-  fluid = createFluid();
+    running =
+      false;
 
-  if (experimentMode === 'escape') {
-    crowd.initialize(crowdCondition);
-  } else {
+    startButton.textContent =
+      '▶ 시작';
+
+    panel.classList.remove(
+      'hidden'
+    );
+
+    fluid =
+      createFluid();
+
+    /*
+     * 탈출형 + LargeView
+     */
+
+    if (
+      currentModel === 'crowd' &&
+      experimentMode === 'escape' &&
+      largeViewDataLoaded
+    ) {
+
+      crowd.seedFromTrajectoryData(
+        largeViewData
+      );
+
+      conditionStatus.textContent =
+        `탈출형 · 실제 군중 ${largeViewData.length}명`;
+
+      return;
+    }
+
+    /*
+     * 탈출형 + 기본 데이터
+     */
+
+    if (
+      experimentMode === 'escape'
+    ) {
+
+      crowd.initialize(
+        crowdCondition
+      );
+
+      conditionStatus.textContent =
+        '탈출형 · 기본 군중 배치';
+
+      return;
+    }
+
+    /*
+     * 유입·유출형
+     */
+
     crowd.initialize({
       ...crowdCondition,
       positions: [],
-      mode: 'continuous' as const,
+      mode: 'continuous',
     });
+
+    conditionStatus.textContent =
+      '유입·유출형 · 연속 유입 초기조건';
   }
-});
+);
 
 /* =========================
    애니메이션
 ========================= */
 
-let lastTime = performance.now();
+let lastTime =
+  performance.now();
 
-function animate(currentTime: number) {
-  const dt = Math.min((currentTime - lastTime) / 1000, 0.016);
+function animate(
+  currentTime: number
+) {
 
-  lastTime = currentTime;
+  const dt =
+    Math.min(
+      (currentTime - lastTime) / 1000,
+      0.016
+    );
 
-  /*
-   * =========================
-   * 계산
-   * =========================
-   */
+  lastTime =
+    currentTime;
+
+  /* =========================
+     물리 계산
+  ========================= */
 
   if (running) {
-    if (currentModel === 'fluid') {
+
+    if (
+      currentModel === 'fluid'
+    ) {
+
       fluid.update();
+
     } else {
+
       crowd.update(dt);
     }
   }
 
-  /*
-   * =========================
-   * 화면 초기화
-   * =========================
-   */
+  /* =========================
+     화면 초기화
+  ========================= */
 
   renderer.clear();
 
-  /*
-   * =========================
-   * 방 그리기
-   * =========================
-   */
+  /* =========================
+     공간
+  ========================= */
 
-  renderer.renderRoom(roomWidth, roomHeight, {
-    x: roomWidth,
-    y: roomHeight / 2,
-    width: 120,
-  });
+  renderer.renderRoom(
+    roomWidth,
+    roomHeight,
+    {
+      x: roomWidth,
+      y: roomHeight / 2,
+      width: 120,
+    }
+  );
 
-  /*
-   * =========================
-   * 선택된 모델 그리기
-   * =========================
-   */
+  /* =========================
+     결과 출력
+  ========================= */
 
-  if (currentModel === 'fluid') {
-    renderer.renderFluidParticles(fluid.particles);
+  if (
+    currentModel === 'fluid'
+  ) {
+
+    renderer.renderFluidParticles(
+      fluid.particles
+    );
+
   } else {
-    renderer.renderAgents(crowd.agents);
+
+    renderer.renderAgents(
+      crowd.agents
+    );
   }
 
-  requestAnimationFrame(animate);
+  requestAnimationFrame(
+    animate
+  );
 }
 
-requestAnimationFrame(animate);
+requestAnimationFrame(
+  animate
+);
 
-window.addEventListener('resize', () => {
-  renderer.resize();
-  renderer.setupCamera(roomWidth, roomHeight);
-});
+/* =========================
+   화면 크기
+========================= */
+
+window.addEventListener(
+  'resize',
+  () => {
+
+    renderer.resize();
+
+    renderer.setupCamera(
+      roomWidth,
+      roomHeight
+    );
+  }
+);
