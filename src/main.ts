@@ -22,6 +22,7 @@ const roomHeight = 500;
 
 let initialSpeed = 30;
 let fluidDensity = 1000;
+let fluidParticleDensity = 0.35;
 let viscosity = 0.000001;
 
 let running = false;
@@ -52,22 +53,90 @@ let largeViewData: LargeViewTrajectory[] = [];
 let largeViewDataLoaded = false;
 let largeViewLoading = false;
 
+
 /* =========================
    군중 기본 초기조건
 ========================= */
+
+let crowdDensity = 1;
+
+function createCrowdPositions(
+  width: number,
+  height: number,
+  density: number
+) {
+  const positions: {
+    x: number;
+    y: number;
+  }[] = [];
+
+  /*
+   * density = 0.1 → 적은 인원
+   * density = 1.0 → 많은 인원
+   *
+   * 방 전체 면적에 비례해서
+   * 사람 수를 결정한다.
+   */
+  const minAgents = 10;
+  const maxAgents = 1000;
+
+  const count = Math.round(
+    minAgents +
+      (maxAgents - minAgents) * density
+  );
+
+  /*
+   * 방 전체에 격자 형태로 배치
+   */
+  const columns = Math.ceil(
+    Math.sqrt(
+      count * (width / height)
+    )
+  );
+
+  const rows = Math.ceil(
+    count / columns
+  );
+
+  const spacingX =
+    width / (columns + 1);
+
+  const spacingY =
+    height / (rows + 1);
+
+  for (let row = 0; row < rows; row++) {
+    for (
+      let column = 0;
+      column < columns;
+      column++
+    ) {
+      if (positions.length >= count) {
+        break;
+      }
+
+      positions.push({
+        x: spacingX * (column + 1),
+        y: spacingY * (row + 1),
+      });
+    }
+  }
+
+  return positions;
+}
 
 const crowdCondition: CrowdCondition = {
   width: roomWidth,
   height: roomHeight,
 
-  density: 1,
+  density: crowdDensity,
 
-  initialSpeed: 80,
+  initialSpeed,
 
-  positions: Array.from({ length: 40 }, (_, index) => ({
-    x: 100 + (index % 8) * 35,
-    y: 130 + Math.floor(index / 8) * 45,
-  })),
+  positions: createCrowdPositions(
+    roomWidth,
+    roomHeight,
+    crowdDensity
+  ),
 
   mode: 'closed',
 
@@ -90,6 +159,7 @@ const crowdCondition: CrowdCondition = {
 
 crowd.initialize(crowdCondition);
 
+
 /* =========================
    유체 모델
 ========================= */
@@ -103,6 +173,7 @@ function createFluid() {
     gridY: 50,
 
     density: fluidDensity,
+    particleDensity: fluidParticleDensity,
     viscosity,
 
     initialSpeed,
@@ -207,7 +278,6 @@ panel.innerHTML = `
 
   <label class="fluid-panellabel">
     초기 속도
-
     <input
       id="speed"
       type="range"
@@ -215,15 +285,43 @@ panel.innerHTML = `
       max="100"
       value="${initialSpeed}"
     />
-
     <span id="speedValue">
       ${initialSpeed}
     </span>
   </label>
 
   <label class="fluid-panellabel">
-    유체 밀도
+    군중 밀도
+    <input
+      id="crowdDensity"
+      type="range"
+      min="0.1"
+      max="1"
+      step="0.05"
+      value="${crowdDensity}"
+    />
+    <span id="crowdDensityValue">
+      ${crowdDensity.toFixed(2)}
+    </span>
+  </label>
 
+  <label class="fluid-panellabel">
+    유체 입자 밀도
+    <input
+      id="fluidParticleDensity"
+      type="range"
+      min="0.1"
+      max="1"
+      step="0.05"
+      value="${fluidParticleDensity}"
+    />
+    <span id="fluidParticleDensityValue">
+      ${fluidParticleDensity.toFixed(2)}
+    </span>
+  </label>
+
+  <label class="fluid-panellabel">
+    유체 밀도
     <input
       id="density"
       type="range"
@@ -231,7 +329,6 @@ panel.innerHTML = `
       max="2000"
       value="${fluidDensity}"
     />
-
     <span id="densityValue">
       ${fluidDensity}
     </span>
@@ -239,7 +336,6 @@ panel.innerHTML = `
 
   <label class="fluid-panellabel">
     동점성계수
-
     <input
       id="viscosity"
       type="range"
@@ -248,7 +344,6 @@ panel.innerHTML = `
       step="0.000001"
       value="${viscosity}"
     />
-
     <span id="viscosityValue">
       ${viscosity.toFixed(6)}
     </span>
@@ -310,6 +405,26 @@ const speedInput =
 
 const densityInput =
   document.getElementById('density') as HTMLInputElement;
+
+  const crowdDensityInput =
+  document.getElementById(
+    'crowdDensity'
+  ) as HTMLInputElement;
+
+const crowdDensityValue =
+  document.getElementById(
+    'crowdDensityValue'
+  )!;
+
+  const fluidParticleDensityInput =
+  document.getElementById(
+    'fluidParticleDensity'
+  ) as HTMLInputElement;
+
+const fluidParticleDensityValue =
+  document.getElementById(
+    'fluidParticleDensityValue'
+  )!;
 
 const viscosityInput =
   document.getElementById('viscosity') as HTMLInputElement;
@@ -591,14 +706,18 @@ speedInput.addEventListener(
   () => {
 
     initialSpeed =
-      Number(speedInput.value);
+  Number(speedInput.value);
 
-    speedValue.textContent =
-      String(initialSpeed);
+speedValue.textContent =
+  String(initialSpeed);
 
-    crowd.setDesiredSpeed(
-      initialSpeed
-    );
+crowdCondition.initialSpeed =
+  initialSpeed;
+
+crowd.setDesiredSpeed(
+  initialSpeed
+);
+
 
     if (
       currentModel === 'fluid'
@@ -607,6 +726,83 @@ speedInput.addEventListener(
       fluid =
         createFluid();
     }
+  }
+);
+
+/* =========================
+   군중 밀도
+========================= */
+
+crowdDensityInput.addEventListener(
+  'input',
+  () => {
+
+    crowdDensity =
+      Number(crowdDensityInput.value);
+
+    crowdDensityValue.textContent =
+      crowdDensity.toFixed(2);
+
+    /*
+     * 탈출형에서는
+     * 밀도 변경 즉시
+     * 공 개수와 배치를 다시 계산한다.
+     */
+    if (
+      experimentMode === 'escape'
+    ) {
+
+      crowdCondition.density =
+        crowdDensity;
+
+      crowdCondition.positions =
+        createCrowdPositions(
+          roomWidth,
+          roomHeight,
+          crowdDensity
+        );
+
+      /*
+       * 현재 화면의 군중을
+       * 즉시 새로운 초기조건으로 교체
+       */
+      crowd.initialize(
+        crowdCondition
+      );
+
+      conditionStatus.textContent =
+        `탈출형 · 군중 밀도 ${crowdDensity.toFixed(2)} · ${crowd.agents.length}명`;
+    }
+  }
+);
+
+/* =========================
+   유체 입자 밀도
+========================= */
+
+fluidParticleDensityInput.addEventListener(
+  'input',
+  () => {
+    fluidParticleDensity =
+      Number(
+        fluidParticleDensityInput.value
+      );
+
+    fluidParticleDensityValue.textContent =
+      fluidParticleDensity.toFixed(2);
+
+    /*
+     * 입자 밀도를 바꾸면
+     * 현재 유체의 입자 수와 배치를
+     * 즉시 다시 계산한다.
+     */
+    fluid =
+      createFluid();
+
+    conditionStatus.textContent =
+      experimentMode === 'escape'
+        ? `탈출형 · 유체 입자 밀도 ${fluidParticleDensity.toFixed(2)} · ${fluid.particles.length}개`
+        : `유입·유출형 · 유체 입자 밀도 ${fluidParticleDensity.toFixed(2)}`;
   }
 );
 

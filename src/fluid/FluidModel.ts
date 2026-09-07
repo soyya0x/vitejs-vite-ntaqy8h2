@@ -10,6 +10,7 @@ export interface FluidCondition {
   gridY: number;
 
   density: number;
+  particleDensity: number;
   viscosity: number;
 
   initialSpeed: number;
@@ -75,21 +76,70 @@ export class FluidModel {
 
     this.field.clear();
     this.particles = [];
+
     if (this.condition.mode === 'escape') {
-      // ① 탈출형: 처음부터 내부에 입자가 존재
-      for (let x = 80; x <= 300; x += 25) {
-        for (let y = 100; y <= 400; y += 25) {
+      /*
+       * 탈출형:
+       * 유체 입자 밀도에 따라
+       * 전체 공간에 균일하게 입자를 배치한다.
+       */
+    
+      const minParticles = 20;
+      const maxParticles = 1000;
+    
+      const count = Math.round(
+        minParticles +
+          (maxParticles - minParticles) *
+            this.condition.particleDensity
+      );
+    
+      const columns = Math.ceil(
+        Math.sqrt(
+          count *
+            (this.condition.width /
+              this.condition.height)
+        )
+      );
+    
+      const rows = Math.ceil(
+        count / columns
+      );
+    
+      const spacingX =
+        this.condition.width /
+        (columns + 1);
+    
+      const spacingY =
+        this.condition.height /
+        (rows + 1);
+    
+      for (let row = 0; row < rows; row++) {
+        for (
+          let column = 0;
+          column < columns;
+          column++
+        ) {
+          if (this.particles.length >= count) {
+            break;
+          }
+    
           this.particles.push({
-            x,
-            y,
-            radius: 4,
+            x: spacingX * (column + 1),
+            y: spacingY * (row + 1),
+            radius: 2,
           });
         }
       }
     } else {
-      // ② 유입·유출형: 처음에는 내부를 비워둠
+      /*
+       * 유입·유출형:
+       * 시작할 때는 0개.
+       * 이후 입구에서 particleDensity에 따라
+       * 유입되는 입자 수를 결정한다.
+       */
       this.particles = [];
     }
+
 
     /*
      * 유체 전체에 초기 밀도 설정
@@ -213,15 +263,44 @@ this.applyInitialVelocity();
      * 공간 미분을 0으로 둔다.
      */
 
-    for (let j = 1; j <= ny; j++) {
-      const k = this.field.index(nx, j);
+  /*
+ * 오른쪽 벽
+ *
+ * 출구 부분만 열린다.
+ */
+for (let j = 1; j <= ny; j++) {
+  const y = (j - 0.5) * this.field.dy;
 
-      const outside = this.field.index(nx + 1, j);
+  const insideOutlet =
+    y >=
+      this.condition.outlet.y -
+        this.condition.outlet.height / 2 &&
+    y <=
+      this.condition.outlet.y +
+        this.condition.outlet.height / 2;
 
-      this.field.u[outside] = this.field.u[k];
+  const k = this.field.index(nx, j);
+  const outside = this.field.index(nx + 1, j);
 
-      this.field.v[outside] = this.field.v[k];
-    }
+  if (insideOutlet) {
+    /*
+     * 출구:
+     * 속도의 공간 미분을 0으로 둔다.
+     */
+    this.field.u[outside] =
+      this.field.u[k];
+
+    this.field.v[outside] =
+      this.field.v[k];
+  } else {
+    /*
+     * 출구가 아닌 오른쪽 벽:
+     * 벽면 속도를 0으로 둔다.
+     */
+    this.field.u[outside] = 0;
+    this.field.v[outside] = 0;
+  }
+}
   }
 
   getVelocity(x: number, y: number) {
@@ -243,36 +322,147 @@ this.applyInitialVelocity();
 
   private spawnInletParticles() {
     const { inlet } = this.condition;
-  
-    for (let i = 0; i < 3; i++) {
+
+    const minSpawn = 1;
+    const maxSpawn = 20;
+
+    const spawnCount = Math.round(
+      minSpawn +
+        (maxSpawn - minSpawn) *
+          this.condition.particleDensity
+    );
+
+    for (let i = 0; i < spawnCount; i++) {
       const y =
         inlet.y -
         inlet.height / 2 +
         Math.random() * inlet.height;
-  
+
       this.particles.push({
         x: 5,
         y,
-        radius: 4,
+        radius: 2,
       });
     }
   }
 
+
   private updateParticles() {
     const dt = 0.016;
-
+    const particleSpeedScale = 6;
+  
+    const radius = 2;
+  
     for (const particle of this.particles) {
-      const velocity = this.getVelocity(particle.x, particle.y);
+      const velocity =
+        this.getVelocity(
+          particle.x,
+          particle.y
+        );
+  
+        const nextX =
+  particle.x +
+  velocity.x *
+  dt *
+  particleSpeedScale;
 
-      particle.x += velocity.x * dt;
-      particle.y += velocity.y * dt;
+const nextY =
+  particle.y +
+  velocity.y *
+  dt *
+  particleSpeedScale;
+
+particle.x = nextX;
+particle.y = nextY;
+  
+      /*
+       * =========================
+       * 위쪽 / 아래쪽 벽
+       * =========================
+       *
+       * 입자가 벽을 넘어가지 못하게
+       * 위치 자체를 제한한다.
+       */
+  
+      if (particle.y < radius) {
+        particle.y = radius;
+      }
+      
+      if (
+        particle.y >
+        this.condition.height - radius
+      ) {
+        particle.y =
+          this.condition.height - radius;
+      }
+  
+      /*
+       * =========================
+       * 왼쪽 벽
+       * =========================
+       *
+       * 유입·유출형에서는
+       * 왼쪽 입구만 통과 가능.
+       */
+  
+      const insideInlet =
+        this.condition.mode === 'open' &&
+        particle.y >=
+          this.condition.inlet.y -
+            this.condition.inlet.height / 2 &&
+        particle.y <=
+          this.condition.inlet.y +
+            this.condition.inlet.height / 2;
+  
+      if (
+        particle.x < radius &&
+        !insideInlet
+      ) {
+        particle.x = radius;
+      }
+  
+      /*
+       * =========================
+       * 오른쪽 벽
+       * =========================
+       *
+       * 출구 부분만 통과 가능.
+       */
+  
+      const insideOutlet =
+        particle.y >=
+          this.condition.outlet.y -
+            this.condition.outlet.height / 2 &&
+        particle.y <=
+          this.condition.outlet.y +
+            this.condition.outlet.height / 2;
+  
+      /*
+       * 출구가 아닌 오른쪽 벽에
+       * 입자가 닿으면 벽 안쪽으로 되돌린다.
+       */
+      if (
+        particle.x >
+          this.condition.width - radius &&
+        !insideOutlet
+      ) {
+        particle.x =
+          this.condition.width - radius;
+      }
     }
-
+  
     /*
-     * 오른쪽 출구를 통과한 입자는 제거한다.
+     * =========================
+     * 오른쪽 출구 통과 입자 제거
+     * =========================
      */
-    this.particles = this.particles.filter(
-      (particle) => particle.x <= this.condition.width + 20
-    );
+  
+    this.particles =
+      this.particles.filter(
+        (particle) =>
+          particle.x <=
+          this.condition.width + 20
+      );
   }
 }
+
