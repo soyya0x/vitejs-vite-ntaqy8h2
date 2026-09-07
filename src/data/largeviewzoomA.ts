@@ -11,7 +11,7 @@ export interface LargeViewTrajectory {
 }
 
 const DATA_URL =
-  'https://raw.githubusercontent.com/soyya0x/vitejs-vite-ntaqy8h2/main/Public/LargeView_zoom_A.txt';
+  '/LargeView_zoom_A.txt';
 
 
 export async function loadLargeViewZoomA(): Promise<LargeViewTrajectory[]> {
