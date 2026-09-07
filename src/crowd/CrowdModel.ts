@@ -663,102 +663,6 @@ export class CrowdModel implements Simulation {
    * ====================================================
    */
 
-  private resolveAgentCollisions() {
-
-    const minimumDistance =
-      this.agentRadius * 2;
-  
-    for (
-      let i = 0;
-      i < this.agents.length;
-      i++
-    ) {
-  
-      for (
-        let j = i + 1;
-        j < this.agents.length;
-        j++
-      ) {
-  
-        const a =
-          this.agents[i];
-  
-        const b =
-          this.agents[j];
-  
-        const dx =
-          b.position.x -
-          a.position.x;
-  
-        const dy =
-          b.position.y -
-          a.position.y;
-  
-        const distance =
-          Math.sqrt(
-            dx * dx +
-            dy * dy
-          );
-  
-        /*
-         * 이미 겹치지 않았다면 종료
-         */
-        if (
-          distance >=
-          minimumDistance
-        ) {
-          continue;
-        }
-  
-        /*
-         * 완전히 같은 위치에 있을 경우
-         * 임의 방향으로 아주 조금 분리
-         */
-        if (distance === 0) {
-  
-          a.position.x -=
-            minimumDistance / 2;
-  
-          b.position.x +=
-            minimumDistance / 2;
-  
-          continue;
-        }
-  
-        /*
-         * 겹친 거리
-         */
-        const overlap =
-          minimumDistance -
-          distance;
-  
-        const nx =
-          dx / distance;
-  
-        const ny =
-          dy / distance;
-  
-        /*
-         * 두 사람을 절반씩 밀어낸다.
-         */
-        const correction =
-          overlap / 2;
-  
-        a.position.x -=
-          nx * correction;
-  
-        a.position.y -=
-          ny * correction;
-  
-        b.position.x +=
-          nx * correction;
-  
-        b.position.y +=
-          ny * correction;
-      }
-    }
-  }
-
   private createAgent(
     x: number,
     y: number
@@ -1138,18 +1042,6 @@ export class CrowdModel implements Simulation {
       );
     }
 
-    /*
- * 사람끼리 실제로 겹치지 않도록
- * 위치를 보정한다.
- */
-this.resolveAgentCollisions();
-
-for (
-  const agent of this.agents
-) {
-  this.keepInsideRoom(agent);
-}
-
     this.agents =
       remainingAgents;
   }
@@ -1518,22 +1410,5 @@ for (
 
   getExitedCount() {
     return this.exitedCount;
-  }
-
-  getAverageSpeed() {
-    if (this.agents.length === 0) {
-      return 0;
-    }
-  
-    let total = 0;
-  
-    for (const agent of this.agents) {
-      total += Math.sqrt(
-        agent.velocity.x ** 2 +
-        agent.velocity.y ** 2
-      );
-    }
-  
-    return total / this.agents.length;
   }
 }
