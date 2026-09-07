@@ -130,8 +130,10 @@ this.applyInitialVelocity();
   }
 
 
-  private applyInlet() {
-    const { nx, ny, initialSpeed, inlet } = this.condition;
+   private applyInlet() {
+  const { initialSpeed, inlet } = this.condition;
+  const { nx, ny } = this.field;
+
 
     const minJ = Math.max(
       1,
