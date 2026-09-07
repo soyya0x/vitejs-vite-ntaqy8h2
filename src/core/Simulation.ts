@@ -1,4 +1,4 @@
-import type { InitialCondition } from '../InitialCondition';
+import type { InitialCondition } from './InitialCondition';
 
 export interface Simulation {
   initialize(condition: InitialCondition): void;
