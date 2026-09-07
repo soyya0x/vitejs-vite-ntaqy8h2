@@ -14,6 +14,11 @@ export interface FluidCondition {
 
   initialSpeed: number;
 
+  positions: {
+    x: number;
+    y: number;
+  }[];
+
   inlet: {
     y: number;
     height: number;
@@ -47,6 +52,8 @@ export class FluidModel {
 
   private condition: FluidCondition;
 
+  private exitedCount = 0;
+
   constructor(condition: FluidCondition) {
     this.condition = condition;
 
@@ -75,21 +82,21 @@ export class FluidModel {
 
     this.field.clear();
     this.particles = [];
+
     if (this.condition.mode === 'escape') {
-      // ① 탈출형: 처음부터 내부에 입자가 존재
-      for (let x = 80; x <= 300; x += 25) {
-        for (let y = 100; y <= 400; y += 25) {
-          this.particles.push({
-            x,
-            y,
-            radius: 4,
-          });
-        }
-      }
+      // CrowdModel과 동일한 초기 위치를 사용
+      this.particles =
+        this.condition.positions.map((position) => ({
+          x: position.x,
+          y: position.y,
+          radius: 4,
+        }));
     } else {
-      // ② 유입·유출형: 처음에는 내부를 비워둠
+      // 유입·유출형은 처음에는 비어 있음
       this.particles = [];
     }
+    
+    this.exitedCount = 0;
 
     /*
      * 유체 전체에 초기 밀도 설정
@@ -109,7 +116,7 @@ export class FluidModel {
 this.applyInitialVelocity();
   }
 
-  update() {
+  update(dt = 0.016) {
     if (this.condition.mode === 'open') {
       this.applyInlet();
     }
@@ -126,7 +133,7 @@ this.applyInitialVelocity();
       this.spawnInletParticles();
     }
   
-    this.updateParticles();
+    this.updateParticles(dt);
   }
 
 
@@ -258,8 +265,7 @@ this.applyInitialVelocity();
     }
   }
 
-  private updateParticles() {
-    const dt = 0.016;
+  private updateParticles(dt: number) {
 
     for (const particle of this.particles) {
       const velocity = this.getVelocity(particle.x, particle.y);
@@ -271,8 +277,51 @@ this.applyInitialVelocity();
     /*
      * 오른쪽 출구를 통과한 입자는 제거한다.
      */
-    this.particles = this.particles.filter(
-      (particle) => particle.x <= this.condition.width + 20
-    );
+    const remainingParticles = [];
+
+for (const particle of this.particles) {
+  if (
+    particle.x > this.condition.width + 20
+  ) {
+    this.exitedCount++;
+    continue;
+  }
+
+  remainingParticles.push(particle);
+}
+
+this.particles = remainingParticles;
+
+  }
+
+  getExitedCount() {
+    return this.exitedCount;
+  }
+  
+  getParticleCount() {
+    return this.particles.length;
+  }
+  
+  getAverageParticleSpeed() {
+    if (this.particles.length === 0) {
+      return 0;
+    }
+  
+    let total = 0;
+  
+    for (const particle of this.particles) {
+      const velocity =
+        this.getVelocity(
+          particle.x,
+          particle.y
+        );
+  
+      total += Math.sqrt(
+        velocity.x ** 2 +
+        velocity.y ** 2
+      );
+    }
+  
+    return total / this.particles.length;
   }
 }

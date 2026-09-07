@@ -8,7 +8,7 @@ import {
 import {
   loadLargeViewZoomA,
   type LargeViewTrajectory,
-} from './data/largeviewzoomA';
+} from './largeviewzoomA';
 
 /* =========================
    기본 조건
@@ -23,6 +23,7 @@ const roomHeight = 500;
 let initialSpeed = 30;
 let fluidDensity = 1000;
 let viscosity = 0.000001;
+let crowdDensity = 0.35;
 
 let running = false;
 
@@ -56,39 +57,96 @@ let largeViewLoading = false;
    군중 기본 초기조건
 ========================= */
 
-const crowdCondition: CrowdCondition = {
-  width: roomWidth,
-  height: roomHeight,
+function createCrowdPositions(
+  width: number,
+  height: number,
+  density: number
+) {
+  const positions: {
+    x: number;
+    y: number;
+  }[] = [];
 
-  density: 1,
+  /*
+   * 밀도에 따라 사람 사이 간격 조절
+   *
+   * density 낮음 → 넓게 분포
+   * density 높음 → 빽빽하게 분포
+   *
+   * 단, 어느 경우든 공간 전체에 분포
+   */
 
-  initialSpeed: 80,
+  const minSpacing = 14;
+  const maxSpacing = 45;
 
-  positions: Array.from({ length: 40 }, (_, index) => ({
-    x: 100 + (index % 8) * 35,
-    y: 130 + Math.floor(index / 8) * 45,
-  })),
+  const spacing =
+    maxSpacing -
+    density *
+      (maxSpacing - minSpacing);
 
+  /*
+   * 방 전체를 격자로 채움
+   */
+  for (
+    let y = spacing;
+    y <= height - spacing;
+    y += spacing
+  ) {
+    for (
+      let x = spacing;
+      x <= width - spacing;
+      x += spacing
+    ) {
+      /*
+       * 오른쪽 출구 공간은 비워둠
+       */
+      const exitTop =
+        height / 2 - 60;
+
+      const exitBottom =
+        height / 2 + 60;
+
+      if (
+        x >= width - 20 &&
+        y >= exitTop &&
+        y <= exitBottom
+      ) {
+        continue;
+      }
+
+      positions.push({
+        x,
+        y,
+      });
+    }
+  }
+
+  return positions;
+}
+
+const crowdCondition: CrowdCondition = { width: roomWidth, height: roomHeight,
+ 
+  density: 0.35,
+   
+  initialSpeed,
+   
+  positions: createCrowdPositions( roomWidth, roomHeight, 0.35 ),
+   
   mode: 'closed',
-
+   
   shape: 'corridor',
+   
+  exit: { x: roomWidth, y: roomHeight / 2, width: 120, },
+   
+  entrance: { x: 0, y: roomHeight / 2, width: 120, },
+   
+  obstacles: [], };
+   
+  crowd.initialize(crowdCondition);
 
-  exit: {
-    x: roomWidth,
-    y: roomHeight / 2,
-    width: 120,
-  },
-
-  entrance: {
-    x: 0,
-    y: roomHeight / 2,
-    width: 120,
-  },
-
-  obstacles: [],
-};
-
-crowd.initialize(crowdCondition);
+/*
+ * CrowdModel의 기본 초기조건
+ */
 
 /* =========================
    유체 모델
@@ -106,6 +164,7 @@ function createFluid() {
     viscosity,
 
     initialSpeed,
+    positions: crowdCondition.positions,
 
     inlet: {
       y: roomHeight / 2,
@@ -206,6 +265,23 @@ panel.innerHTML = `
   <h4>초기조건</h4>
 
   <label class="fluid-panellabel">
+  군중 밀집도
+
+  <input
+    id="crowdDensity"
+    type="range"
+    min="0.1"
+    max="1"
+    step="0.05"
+    value="${crowdDensity}"
+  />
+
+  <span id="crowdDensityValue">
+    ${crowdDensity.toFixed(2)}
+  </span>
+</label>
+
+  <label class="fluid-panellabel">
     초기 속도
 
     <input
@@ -304,6 +380,16 @@ document.body.appendChild(panel);
 /* =========================
    DOM
 ========================= */
+
+const crowdDensityInput =
+  document.getElementById(
+    'crowdDensity'
+  ) as HTMLInputElement;
+
+const crowdDensityValue =
+  document.getElementById(
+    'crowdDensityValue'
+  )!;
 
 const speedInput =
   document.getElementById('speed') as HTMLInputElement;
@@ -585,6 +671,45 @@ loadDataButton.addEventListener(
 /* =========================
    속도
 ========================= */
+
+crowdDensityInput.addEventListener(
+  'input',
+  () => {
+
+    crowdDensity =
+      Number(
+        crowdDensityInput.value
+      );
+
+    crowdDensityValue.textContent =
+      crowdDensity.toFixed(2);
+
+    /*
+     * 현재 탈출형이고
+     * 실제 LargeView 데이터를
+     * 사용하지 않는 경우에만
+     * 새 밀도로 재배치
+     */
+    if (
+      experimentMode === 'escape' &&
+      !largeViewDataLoaded
+    ) {
+
+      crowd.initialize({
+        ...crowdCondition,
+
+        density: crowdDensity,
+
+        positions:
+          createCrowdPositions(
+            roomWidth,
+            roomHeight,
+            crowdDensity
+          ),
+      });
+    }
+  }
+);
 
 speedInput.addEventListener(
   'input',
@@ -901,6 +1026,12 @@ function animate(
   currentTime: number
 ) {
 
+  let lastTime =
+  performance.now();
+
+function animate(
+  currentTime: number
+) {
   const dt =
     Math.min(
       (currentTime - lastTime) / 1000,
@@ -909,6 +1040,7 @@ function animate(
 
   lastTime =
     currentTime;
+}
 
   /* =========================
      물리 계산
@@ -919,11 +1051,8 @@ function animate(
     if (
       currentModel === 'fluid'
     ) {
-
-      fluid.update();
-
+      fluid.update(dt);
     } else {
-
       crowd.update(dt);
     }
   }

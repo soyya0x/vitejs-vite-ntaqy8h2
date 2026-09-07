@@ -10,7 +10,7 @@ export interface LargeViewTrajectory {
   points: LargeViewPoint[];
 }
 
-const DATA_URL = '/data/LargeView_zoom_A.txt';
+const DATA_URL = '/LargeView_zoom_A.txt';
 
 export async function loadLargeViewZoomA(): Promise<LargeViewTrajectory[]> {
   const response = await fetch(DATA_URL);
