@@ -10,12 +10,15 @@ export interface LargeViewTrajectory {
   points: LargeViewPoint[];
 }
 
+const DATA_URL =
+  'https://raw.githubusercontent.com/soyya0x/vitejs-vite-ntaqy8h2/main/LargeView_zoom_A.txt';
+
 export async function loadLargeViewZoomA(): Promise<LargeViewTrajectory[]> {
-  const response = await fetch('/data/LargeView_zoom_A.txt');
+  const response = await fetch(DATA_URL);
 
   if (!response.ok) {
     throw new Error(
-      `LargeView_zoom_A.txt를 불러오지 못했습니다. (${response.status})`
+      `LargeView_zoom_A 로드 실패: HTTP ${response.status}`
     );
   }
 
@@ -23,19 +26,15 @@ export async function loadLargeViewZoomA(): Promise<LargeViewTrajectory[]> {
 
   const trajectories = new Map<number, LargeViewPoint[]>();
 
-  const lines = text.split(/\r?\n/);
-
-  for (const line of lines) {
+  for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
 
-    // 주석 / 빈 줄 무시
     if (!trimmed || trimmed.startsWith('#')) {
       continue;
     }
 
     const values = trimmed.split(/\s+/);
 
-    // id frame x y z t x_RGF y_RGF
     if (values.length < 4) {
       continue;
     }
@@ -78,6 +77,10 @@ export async function loadLargeViewZoomA(): Promise<LargeViewTrajectory[]> {
   }
 
   result.sort((a, b) => a.id - b.id);
+
+  console.log(
+    `LargeView_zoom_A 로드 완료: ${result.length}명`
+  );
 
   return result;
 }
